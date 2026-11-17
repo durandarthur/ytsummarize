@@ -1,0 +1,81 @@
+# Builds the standalone programs and publishes them as a GitHub release.
+#
+#   Release:      push a tag named after the version, e.g.  git tag v0.1.0 && git push origin v0.1.0
+#   Test build:   Actions tab -> "Release" -> "Run workflow" (builds only; the files
+#                 appear under the run's "Artifacts", no release is created)
+#
+# See RELEASING.md for the whole process.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04 on purpose: a Linux build only runs on systems whose glibc is at
+        # least as new as the one it was built on, so building on an older release
+        # makes the binary work on more distributions.
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+
+      - name: Check that the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/ytsummarize/__init__.py)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ = \"$version\" in src/ytsummarize/__init__.py"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: uv sync --locked --group build
+
+      - name: Build and smoke-test
+        run: uv run python scripts/build.py
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ytsummarize-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to create the release
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "ytsummarize $GITHUB_REF_NAME"
+          --generate-notes

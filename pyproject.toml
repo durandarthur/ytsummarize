@@ -1,0 +1,33 @@
+[project]
+name = "ytsummarize"
+dynamic = ["version"]  # read from src/ytsummarize/__init__.py
+description = "Turn YouTube videos (including multi-hour ones) into clean Markdown study notes"
+readme = "README.md"
+requires-python = ">=3.11"  # yt-dlp has deprecated 3.10
+dependencies = [
+    "yt-dlp[default]>=2026.10.21",
+    "anthropic",
+    "faster-whisper>=1.1",
+    "av>=12",  # audio decoding; its wheels bundle FFmpeg, so no system ffmpeg is needed
+    "numpy",
+    # The CUDA libraries for GPU transcription are not listed here: they are
+    # downloaded at first use, and only on machines with an NVIDIA GPU (hardware.py).
+]
+
+[dependency-groups]
+# Only for building the standalone executables: uv sync --group build
+build = ["pyinstaller>=6.22"]
+
+[project.scripts]
+ytsummarize = "ytsummarize.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/ytsummarize/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ytsummarize"]
+
